@@ -10,15 +10,21 @@ export function registerRoute(path, handler) {
 }
 
 export function navigate(path) {
-  if (window.location.hash === '#' + path) {
+  const cleanPath = path.replace(/^#+/, '');
+  const targetHash = '#' + (cleanPath.startsWith('/') ? cleanPath : '/' + cleanPath);
+  if (window.location.hash === targetHash) {
     window.dispatchEvent(new Event('hashchange'));
   } else {
-    window.location.hash = path;
+    window.location.hash = targetHash;
   }
 }
 
 export function getCurrentRoute() {
-  return window.location.hash.slice(1) || '/';
+  let hash = window.location.hash.replace(/^#+/, '');
+  if (!hash.startsWith('/')) {
+    hash = '/' + hash;
+  }
+  return hash || '/';
 }
 
 export function startRouter(onRouteChange) {

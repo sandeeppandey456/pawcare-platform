@@ -14,7 +14,9 @@ const ALLOWED_TABLES = [
   'bookings',
   'orders',
   'lost_found',
-  'stray_reports'
+  'stray_reports',
+  'reviews',
+  'users'
 ];
 
 function parseJsonFields(row) {

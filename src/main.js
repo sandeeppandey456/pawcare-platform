@@ -6,6 +6,9 @@ import {
   renderHome,
   renderLogin, initLoginEvents,
   renderSignup, initSignupEvents,
+  renderVendorSignup, initVendorSignupEvents,
+  renderVendorDashboard, initVendorEvents,
+  renderAdminDashboard, initAdminEvents,
   renderShop, initShopEvents,
   renderCart, initCartEvents,
   renderCheckout, initCheckoutEvents,
@@ -56,6 +59,18 @@ registerRoute('/login', (params) => {
 
 registerRoute('/signup', (params) => {
   renderPage(renderSignup(params), initSignupEvents);
+});
+
+registerRoute('/vendor-signup', (params) => {
+  renderPage(renderVendorSignup(params), initVendorSignupEvents);
+});
+
+registerRoute('/vendor', (params) => {
+  renderPage(renderVendorDashboard(params), initVendorEvents);
+});
+
+registerRoute('/admin', (params) => {
+  renderPage(renderAdminDashboard(params), initAdminEvents);
 });
 
 registerRoute('/shop', (params) => {

@@ -18,7 +18,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Create all tables
+    // 1. Create / update all tables
     await client.batch([
       `CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
@@ -28,7 +28,11 @@ export default async function handler(req, res) {
         phone TEXT,
         city TEXT,
         avatar TEXT,
-        role TEXT,
+        role TEXT DEFAULT 'user',
+        storeName TEXT,
+        businessType TEXT,
+        gstin TEXT,
+        payoutUpi TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );`,
       `CREATE TABLE IF NOT EXISTS doctors (
@@ -45,7 +49,11 @@ export default async function handler(req, res) {
         phone TEXT,
         fee REAL,
         image TEXT,
-        tags TEXT
+        tags TEXT,
+        address TEXT,
+        googlePlaceId TEXT,
+        lat REAL,
+        lng REAL
       );`,
       `CREATE TABLE IF NOT EXISTS hospitals (
         id TEXT PRIMARY KEY,
@@ -58,7 +66,12 @@ export default async function handler(req, res) {
         emergency INTEGER,
         image TEXT,
         features TEXT,
-        priceRange TEXT
+        priceRange TEXT,
+        address TEXT,
+        googleRating REAL,
+        googleReviewsCount INTEGER,
+        lat REAL,
+        lng REAL
       );`,
       `CREATE TABLE IF NOT EXISTS products (
         id TEXT PRIMARY KEY,
@@ -71,10 +84,24 @@ export default async function handler(req, res) {
         rating REAL,
         reviews INTEGER,
         seller TEXT,
+        vendorId TEXT,
         sellerType TEXT,
         description TEXT,
         inStock INTEGER,
+        stockCount INTEGER DEFAULT 50,
         tag TEXT
+      );`,
+      `CREATE TABLE IF NOT EXISTS reviews (
+        id TEXT PRIMARY KEY,
+        entityId TEXT,
+        entityType TEXT,
+        authorName TEXT,
+        authorAvatar TEXT,
+        reviewerLevel TEXT,
+        rating REAL,
+        date TEXT,
+        text TEXT,
+        likes INTEGER DEFAULT 0
       );`,
       `CREATE TABLE IF NOT EXISTS adoption (
         id TEXT PRIMARY KEY,
@@ -107,7 +134,12 @@ export default async function handler(req, res) {
         image TEXT,
         features TEXT,
         description TEXT,
-        ownerType TEXT
+        ownerType TEXT,
+        address TEXT,
+        googleRating REAL,
+        googleReviewsCount INTEGER,
+        lat REAL,
+        lng REAL
       );`,
       `CREATE TABLE IF NOT EXISTS places (
         id TEXT PRIMARY KEY,
@@ -120,7 +152,12 @@ export default async function handler(req, res) {
         image TEXT,
         features TEXT,
         description TEXT,
-        priceRange TEXT
+        priceRange TEXT,
+        address TEXT,
+        googleRating REAL,
+        googleReviewsCount INTEGER,
+        lat REAL,
+        lng REAL
       );`,
       `CREATE TABLE IF NOT EXISTS food_suppliers (
         id TEXT PRIMARY KEY,
@@ -133,7 +170,10 @@ export default async function handler(req, res) {
         description TEXT,
         priceRange TEXT,
         delivery INTEGER,
-        phone TEXT
+        phone TEXT,
+        address TEXT,
+        googleRating REAL,
+        googleReviewsCount INTEGER
       );`,
       `CREATE TABLE IF NOT EXISTS cremation (
         id TEXT PRIMARY KEY,
@@ -145,7 +185,10 @@ export default async function handler(req, res) {
         services TEXT,
         priceRange TEXT,
         phone TEXT,
-        description TEXT
+        description TEXT,
+        address TEXT,
+        googleRating REAL,
+        googleReviewsCount INTEGER
       );`,
       `CREATE TABLE IF NOT EXISTS vaccinations (
         id TEXT PRIMARY KEY,
@@ -238,88 +281,9 @@ export default async function handler(req, res) {
       );`
     ]);
 
-    // 2. Check if doctors table has records; if not, seed all tables
-    const checkUsers = await client.execute('SELECT COUNT(*) as count FROM users');
-    let seeded = false;
-
-    if (checkUsers.rows[0].count === 0) {
-      const inserts = [];
-
-      for (const u of seed.SEED_USERS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO users (id, name, email, password, phone, city, avatar, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [u.id, u.name, u.email, u.password, u.phone, u.city, u.avatar, u.role]
-        });
-      }
-      for (const d of seed.SEED_DOCTORS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO doctors (id, name, specialty, hospital, city, rating, reviews, experience, available24x7, videoCall, phone, fee, image, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [d.id, d.name, d.specialty, d.hospital, d.city, d.rating, d.reviews, d.experience, d.available24x7, d.videoCall, d.phone, d.fee, d.image, d.tags]
-        });
-      }
-      for (const h of seed.SEED_HOSPITALS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO hospitals (id, name, city, area, rating, reviews, phone, emergency, image, features, priceRange) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [h.id, h.name, h.city, h.area, h.rating, h.reviews, h.phone, h.emergency, h.image, h.features, h.priceRange]
-        });
-      }
-      for (const p of seed.SEED_PRODUCTS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO products (id, name, category, subcategory, price, originalPrice, image, rating, reviews, seller, sellerType, description, inStock, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [p.id, p.name, p.category, p.subcategory, p.price, p.originalPrice, p.image, p.rating, p.reviews, p.seller, p.sellerType, p.description, p.inStock, p.tag]
-        });
-      }
-      for (const a of seed.SEED_ADOPTION) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO adoption (id, name, type, breed, age, gender, size, vaccinated, neutered, description, city, contactName, contactPhone, image, status, fee, listedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [a.id, a.name, a.type, a.breed, a.age, a.gender, a.size, a.vaccinated, a.neutered, a.description, a.city, a.contactName, a.contactPhone, a.image, a.status, a.fee, a.listedBy]
-        });
-      }
-      for (const b of seed.SEED_BOARDING) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO boarding (id, name, type, city, area, rating, reviews, pricePerDay, image, features, description, ownerType) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [b.id, b.name, b.type, b.city, b.area, b.rating, b.reviews, b.pricePerDay, b.image, b.features, b.description, b.ownerType]
-        });
-      }
-      for (const pl of seed.SEED_PLACES) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO places (id, name, type, city, area, rating, reviews, image, features, description, priceRange) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [pl.id, pl.name, pl.type, pl.city, pl.area, pl.rating, pl.reviews, pl.image, pl.features, pl.description, pl.priceRange]
-        });
-      }
-      for (const f of seed.SEED_FOOD_SUPPLIERS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO food_suppliers (id, name, type, city, rating, reviews, image, description, priceRange, delivery, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [f.id, f.name, f.type, f.city, f.rating, f.reviews, f.image, f.description, f.priceRange, f.delivery, f.phone]
-        });
-      }
-      for (const c of seed.SEED_CREMATION) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO cremation (id, name, city, rating, reviews, image, services, priceRange, phone, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [c.id, c.name, c.city, c.rating, c.reviews, c.image, c.services, c.priceRange, c.phone, c.description]
-        });
-      }
-      for (const v of seed.SEED_VACCINATIONS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO vaccinations (id, petName, petType, vaccineName, date, nextDue, doctor, hospital, status, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [v.id, v.petName, v.petType, v.vaccineName, v.date, v.nextDue, v.doctor, v.hospital, v.status, v.userId]
-        });
-      }
-      for (const vs of seed.SEED_VET_VISITS) {
-        inserts.push({
-          sql: 'INSERT OR IGNORE INTO vet_visits (id, petName, petType, date, doctor, hospital, reason, diagnosis, prescription, weight, temperature, notes, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          args: [vs.id, vs.petName, vs.petType, vs.date, vs.doctor, vs.hospital, vs.reason, vs.diagnosis, vs.prescription, vs.weight, vs.temperature, vs.notes, vs.userId]
-        });
-      }
-
-      await client.batch(inserts);
-      seeded = true;
-    }
-
     return res.status(200).json({
       success: true,
-      message: seeded ? 'Database schema created and initial data successfully seeded!' : 'Database schema verified and active.',
-      seeded,
+      message: 'Database schema verified and active.',
     });
   } catch (error) {
     console.error('Setup error:', error);

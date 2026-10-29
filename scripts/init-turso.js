@@ -9,9 +9,6 @@ const authToken = process.env.TURSO_AUTH_TOKEN || process.env.VITE_TURSO_AUTH_TO
 
 if (!url) {
   console.error('❌ Error: TURSO_DATABASE_URL is not set.');
-  console.log('👉 Create a .env file with:');
-  console.log('   TURSO_DATABASE_URL=libsql://your-db.turso.io');
-  console.log('   TURSO_AUTH_TOKEN=your_auth_token\n');
   process.exit(1);
 }
 
@@ -20,301 +17,89 @@ const client = createClient({
   authToken: authToken || undefined,
 });
 
+async function safeAddColumn(table, columnDef) {
+  try {
+    await client.execute(`ALTER TABLE ${table} ADD COLUMN ${columnDef}`);
+  } catch {
+    // column already exists
+  }
+}
+
 async function main() {
   console.log(`Connecting to Turso: ${url}...`);
 
-  console.log('Creating tables...');
-  await client.batch([
-    `CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      email TEXT UNIQUE,
-      password TEXT,
-      phone TEXT,
-      city TEXT,
-      avatar TEXT,
-      role TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );`,
-    `CREATE TABLE IF NOT EXISTS doctors (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      specialty TEXT,
-      hospital TEXT,
-      city TEXT,
-      rating REAL,
-      reviews INTEGER,
-      experience TEXT,
-      available24x7 INTEGER,
-      videoCall INTEGER,
-      phone TEXT,
-      fee REAL,
-      image TEXT,
-      tags TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS hospitals (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      city TEXT,
-      area TEXT,
-      rating REAL,
-      reviews INTEGER,
-      phone TEXT,
-      emergency INTEGER,
-      image TEXT,
-      features TEXT,
-      priceRange TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      category TEXT,
-      subcategory TEXT,
-      price REAL,
-      originalPrice REAL,
-      image TEXT,
-      rating REAL,
-      reviews INTEGER,
-      seller TEXT,
-      sellerType TEXT,
-      description TEXT,
-      inStock INTEGER,
-      tag TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS adoption (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      type TEXT,
-      breed TEXT,
-      age TEXT,
-      gender TEXT,
-      size TEXT,
-      vaccinated INTEGER,
-      neutered INTEGER,
-      description TEXT,
-      city TEXT,
-      contactName TEXT,
-      contactPhone TEXT,
-      image TEXT,
-      status TEXT,
-      fee REAL,
-      listedBy TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS boarding (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      type TEXT,
-      city TEXT,
-      area TEXT,
-      rating REAL,
-      reviews INTEGER,
-      pricePerDay REAL,
-      image TEXT,
-      features TEXT,
-      description TEXT,
-      ownerType TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS places (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      type TEXT,
-      city TEXT,
-      area TEXT,
-      rating REAL,
-      reviews INTEGER,
-      image TEXT,
-      features TEXT,
-      description TEXT,
-      priceRange TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS food_suppliers (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      type TEXT,
-      city TEXT,
-      rating REAL,
-      reviews INTEGER,
-      image TEXT,
-      description TEXT,
-      priceRange TEXT,
-      delivery INTEGER,
-      phone TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS cremation (
-      id TEXT PRIMARY KEY,
-      name TEXT,
-      city TEXT,
-      rating REAL,
-      reviews INTEGER,
-      image TEXT,
-      services TEXT,
-      priceRange TEXT,
-      phone TEXT,
-      description TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS vaccinations (
-      id TEXT PRIMARY KEY,
-      petName TEXT,
-      petType TEXT,
-      vaccineName TEXT,
-      date TEXT,
-      nextDue TEXT,
-      doctor TEXT,
-      hospital TEXT,
-      status TEXT,
-      userId TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS vet_visits (
-      id TEXT PRIMARY KEY,
-      petName TEXT,
-      petType TEXT,
-      date TEXT,
-      doctor TEXT,
-      hospital TEXT,
-      reason TEXT,
-      diagnosis TEXT,
-      prescription TEXT,
-      weight TEXT,
-      temperature TEXT,
-      notes TEXT,
-      userId TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS bookings (
-      id TEXT PRIMARY KEY,
-      type TEXT,
-      doctorId TEXT,
-      doctorName TEXT,
-      hospitalId TEXT,
-      hospital TEXT,
-      boardingId TEXT,
-      boardingName TEXT,
-      petName TEXT,
-      date TEXT,
-      time TEXT,
-      checkIn TEXT,
-      checkOut TEXT,
-      reason TEXT,
-      fee REAL,
-      status TEXT,
-      userId TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );`,
-    `CREATE TABLE IF NOT EXISTS orders (
-      id TEXT PRIMARY KEY,
-      userId TEXT,
-      items TEXT,
-      total REAL,
-      address TEXT,
-      city TEXT,
-      pin TEXT,
-      phone TEXT,
-      payment TEXT,
-      status TEXT,
-      date TEXT DEFAULT (datetime('now'))
-    );`,
-    `CREATE TABLE IF NOT EXISTS lost_found (
-      id TEXT PRIMARY KEY,
-      status TEXT,
-      petType TEXT,
-      breed TEXT,
-      color TEXT,
-      location TEXT,
-      city TEXT,
-      date TEXT,
-      reward TEXT,
-      contactName TEXT,
-      contactPhone TEXT,
-      description TEXT,
-      image TEXT
-    );`,
-    `CREATE TABLE IF NOT EXISTS stray_reports (
-      id TEXT PRIMARY KEY,
-      animalType TEXT,
-      condition TEXT,
-      location TEXT,
-      landmark TEXT,
-      city TEXT,
-      reporterName TEXT,
-      reporterPhone TEXT,
-      description TEXT,
-      image TEXT,
-      status TEXT,
-      date TEXT
-    );`
-  ]);
+  console.log('Migrating table columns...');
+  await safeAddColumn('users', 'storeName TEXT');
+  await safeAddColumn('users', 'businessType TEXT');
+  await safeAddColumn('users', 'gstin TEXT');
+  await safeAddColumn('users', 'payoutUpi TEXT');
 
-  console.log('Seeding initial records...');
-  const inserts = [];
+  await safeAddColumn('products', 'vendorId TEXT');
+  await safeAddColumn('products', 'stockCount INTEGER DEFAULT 50');
 
+  await safeAddColumn('doctors', 'address TEXT');
+  await safeAddColumn('doctors', 'googlePlaceId TEXT');
+  await safeAddColumn('doctors', 'lat REAL');
+  await safeAddColumn('doctors', 'lng REAL');
+
+  await safeAddColumn('hospitals', 'address TEXT');
+  await safeAddColumn('hospitals', 'googleRating REAL');
+  await safeAddColumn('hospitals', 'googleReviewsCount INTEGER');
+  await safeAddColumn('hospitals', 'lat REAL');
+  await safeAddColumn('hospitals', 'lng REAL');
+
+  await safeAddColumn('boarding', 'address TEXT');
+  await safeAddColumn('boarding', 'googleRating REAL');
+  await safeAddColumn('boarding', 'googleReviewsCount INTEGER');
+  await safeAddColumn('boarding', 'lat REAL');
+  await safeAddColumn('boarding', 'lng REAL');
+
+  await safeAddColumn('places', 'address TEXT');
+  await safeAddColumn('places', 'googleRating REAL');
+  await safeAddColumn('places', 'googleReviewsCount INTEGER');
+  await safeAddColumn('places', 'lat REAL');
+  await safeAddColumn('places', 'lng REAL');
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS reviews (
+      id TEXT PRIMARY KEY,
+      entityId TEXT,
+      entityType TEXT,
+      authorName TEXT,
+      authorAvatar TEXT,
+      reviewerLevel TEXT,
+      rating REAL,
+      date TEXT,
+      text TEXT,
+      likes INTEGER DEFAULT 0
+    );
+  `);
+
+  console.log('Upserting admin and vendor accounts...');
   for (const u of seed.SEED_USERS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO users (id, name, email, password, phone, city, avatar, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [u.id, u.name, u.email, u.password, u.phone, u.city, u.avatar, u.role]
-    });
-  }
-  for (const d of seed.SEED_DOCTORS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO doctors (id, name, specialty, hospital, city, rating, reviews, experience, available24x7, videoCall, phone, fee, image, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [d.id, d.name, d.specialty, d.hospital, d.city, d.rating, d.reviews, d.experience, d.available24x7, d.videoCall, d.phone, d.fee, d.image, d.tags]
-    });
-  }
-  for (const h of seed.SEED_HOSPITALS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO hospitals (id, name, city, area, rating, reviews, phone, emergency, image, features, priceRange) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [h.id, h.name, h.city, h.area, h.rating, h.reviews, h.phone, h.emergency, h.image, h.features, h.priceRange]
-    });
-  }
-  for (const p of seed.SEED_PRODUCTS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO products (id, name, category, subcategory, price, originalPrice, image, rating, reviews, seller, sellerType, description, inStock, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [p.id, p.name, p.category, p.subcategory, p.price, p.originalPrice, p.image, p.rating, p.reviews, p.seller, p.sellerType, p.description, p.inStock, p.tag]
-    });
-  }
-  for (const a of seed.SEED_ADOPTION) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO adoption (id, name, type, breed, age, gender, size, vaccinated, neutered, description, city, contactName, contactPhone, image, status, fee, listedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [a.id, a.name, a.type, a.breed, a.age, a.gender, a.size, a.vaccinated, a.neutered, a.description, a.city, a.contactName, a.contactPhone, a.image, a.status, a.fee, a.listedBy]
-    });
-  }
-  for (const b of seed.SEED_BOARDING) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO boarding (id, name, type, city, area, rating, reviews, pricePerDay, image, features, description, ownerType) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [b.id, b.name, b.type, b.city, b.area, b.rating, b.reviews, b.pricePerDay, b.image, b.features, b.description, b.ownerType]
-    });
-  }
-  for (const pl of seed.SEED_PLACES) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO places (id, name, type, city, area, rating, reviews, image, features, description, priceRange) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [pl.id, pl.name, pl.type, pl.city, pl.area, pl.rating, pl.reviews, pl.image, pl.features, pl.description, pl.priceRange]
-    });
-  }
-  for (const f of seed.SEED_FOOD_SUPPLIERS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO food_suppliers (id, name, type, city, rating, reviews, image, description, priceRange, delivery, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [f.id, f.name, f.type, f.city, f.rating, f.reviews, f.image, f.description, f.priceRange, f.delivery, f.phone]
-    });
-  }
-  for (const c of seed.SEED_CREMATION) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO cremation (id, name, city, rating, reviews, image, services, priceRange, phone, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [c.id, c.name, c.city, c.rating, c.reviews, c.image, c.services, c.priceRange, c.phone, c.description]
-    });
-  }
-  for (const v of seed.SEED_VACCINATIONS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO vaccinations (id, petName, petType, vaccineName, date, nextDue, doctor, hospital, status, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [v.id, v.petName, v.petType, v.vaccineName, v.date, v.nextDue, v.doctor, v.hospital, v.status, v.userId]
-    });
-  }
-  for (const vs of seed.SEED_VET_VISITS) {
-    inserts.push({
-      sql: 'INSERT OR IGNORE INTO vet_visits (id, petName, petType, date, doctor, hospital, reason, diagnosis, prescription, weight, temperature, notes, userId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      args: [vs.id, vs.petName, vs.petType, vs.date, vs.doctor, vs.hospital, vs.reason, vs.diagnosis, vs.prescription, vs.weight, vs.temperature, vs.notes, vs.userId]
+    await client.execute({
+      sql: 'INSERT OR REPLACE INTO users (id, name, email, password, phone, city, avatar, role, storeName, businessType, gstin, payoutUpi) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [u.id, u.name, u.email, u.password, u.phone, u.city, u.avatar, u.role, u.storeName || null, u.businessType || null, u.gstin || null, u.payoutUpi || null]
     });
   }
 
-  await client.batch(inserts);
-  console.log('✅ Successfully setup and seeded Turso database!');
+  console.log('Upserting products with subcategories...');
+  for (const p of seed.SEED_PRODUCTS) {
+    await client.execute({
+      sql: 'INSERT OR REPLACE INTO products (id, name, category, subcategory, price, originalPrice, image, rating, reviews, seller, vendorId, sellerType, description, inStock, stockCount, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [p.id, p.name, p.category, p.subcategory, p.price, p.originalPrice, p.image, p.rating, p.reviews, p.seller, p.vendorId || 'vendor1', p.sellerType, p.description, p.inStock, p.stockCount || 50, p.tag]
+    });
+  }
+
+  console.log('Upserting Google reviews...');
+  for (const r of seed.SEED_REVIEWS) {
+    await client.execute({
+      sql: 'INSERT OR REPLACE INTO reviews (id, entityId, entityType, authorName, authorAvatar, reviewerLevel, rating, date, text, likes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      args: [r.id, r.entityId, r.entityType, r.authorName, r.authorAvatar, r.reviewerLevel, r.rating, r.date, r.text, r.likes || 0]
+    });
+  }
+
+  console.log('✅ Successfully updated and synced Turso database schema!');
 }
 
 main().catch(err => {
