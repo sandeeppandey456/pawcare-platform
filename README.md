@@ -2,6 +2,8 @@
 
 A full-featured modern pet care web application built from real-world brainstorming notes and user scribbles. Featuring an end-to-end localStorage database, instant reactive routing, glassmorphic UI design, and comprehensive features for every pet parent.
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fsandeeppandey456%2Fpawcare-platform&env=TURSO_DATABASE_URL,TURSO_AUTH_TOKEN&envDescription=Add%20your%20Turso%20Database%20Credentials&project-name=pawcare-platform)
+
 ---
 
 ## 🌟 Key Features Implemented (From Notepad Scribbles)
