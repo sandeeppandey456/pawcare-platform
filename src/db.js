@@ -158,7 +158,54 @@ export function initDB() {
     dbSet('selectedCity', 'Bangalore');
     dbSet('initialized', true);
   }
+
+  // Attempt background sync with Turso cloud on Vercel
+  syncWithCloud();
 }
+
+async function syncWithCloud() {
+  try {
+    const res = await fetch('/api/setup', { method: 'POST' });
+    if (!res.ok) return;
+
+    // Cloud is active! Sync tables
+    const tables = ['doctors', 'hospitals', 'products', 'adoption', 'boarding', 'places', 'food_suppliers', 'cremation'];
+    for (const t of tables) {
+      try {
+        const dataRes = await fetch(`/api/data?table=${t}`);
+        if (dataRes.ok) {
+          const rows = await dataRes.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            const keyMap = {
+              food_suppliers: 'foodSuppliers',
+              lost_found: 'lostFound',
+              stray_reports: 'strayReports',
+              vet_visits: 'vetVisits'
+            };
+            dbSet(keyMap[t] || t, rows);
+          }
+        }
+      } catch {
+        // Ignore individual table fetch error
+      }
+    }
+  } catch {
+    // Offline or static mode - works entirely locally
+  }
+}
+
+async function cloudSave(table, data) {
+  try {
+    await fetch(`/api/data?table=${table}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+  } catch {
+    // Silently continue locally
+  }
+}
+
 
 // ==========================================
 // CRUD OPERATIONS
@@ -272,6 +319,7 @@ export function addBooking(booking) {
   const newBooking = { id: generateId(), ...booking, date: new Date().toISOString(), status: 'confirmed' };
   bookings.push(newBooking);
   dbSet('bookings', bookings);
+  cloudSave('bookings', newBooking);
   return newBooking;
 }
 
@@ -290,6 +338,7 @@ export function placeOrder(orderData) {
   };
   orders.push(newOrder);
   dbSet('orders', orders);
+  cloudSave('orders', newOrder);
   clearCart();
   return newOrder;
 }
@@ -300,6 +349,7 @@ export function addLostFound(report) {
   const newReport = { id: generateId(), ...report, date: new Date().toISOString().split('T')[0], status: 'active' };
   reports.push(newReport);
   dbSet('lostFound', reports);
+  cloudSave('lost_found', newReport);
   return newReport;
 }
 
@@ -309,6 +359,7 @@ export function addStrayReport(report) {
   const newReport = { id: generateId(), ...report, date: new Date().toISOString().split('T')[0], status: 'reported' };
   reports.push(newReport);
   dbSet('strayReports', reports);
+  cloudSave('stray_reports', newReport);
   return newReport;
 }
 
@@ -318,6 +369,7 @@ export function addVaccination(record) {
   const newRecord = { id: generateId(), ...record };
   records.push(newRecord);
   dbSet('vaccinations', records);
+  cloudSave('vaccinations', newRecord);
   return newRecord;
 }
 
@@ -327,6 +379,7 @@ export function addVetVisit(visit) {
   const newVisit = { id: generateId(), ...visit };
   visits.push(newVisit);
   dbSet('vetVisits', visits);
+  cloudSave('vet_visits', newVisit);
   return newVisit;
 }
 
@@ -336,6 +389,7 @@ export function addAdoptionListing(pet) {
   const newListing = { id: generateId(), ...pet, status: 'available' };
   listings.push(newListing);
   dbSet('adoption', listings);
+  cloudSave('adoption', newListing);
   return newListing;
 }
 
