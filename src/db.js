@@ -80,6 +80,7 @@ export function initDB() {
     dbSet('reviews', SEED_REVIEWS);
     dbSet('cities', CITIES);
     dbSet('selectedCity', 'Bangalore');
+    dbSet('blocked_list', dbGet('blocked_list') || []);
     dbSet('db_version', version);
   }
 
@@ -92,20 +93,27 @@ async function syncWithCloud() {
     const res = await fetch('/api/setup', { method: 'POST' });
     if (!res.ok) return;
 
-    const tables = ['doctors', 'hospitals', 'products', 'adoption', 'boarding', 'places', 'food_suppliers', 'cremation'];
+    const tables = ['doctors', 'hospitals', 'products', 'adoption', 'boarding', 'places', 'food_suppliers', 'cremation', 'users', 'blocked_list'];
     for (const t of tables) {
       try {
         const dataRes = await fetch(`/api/data?table=${t}`);
         if (dataRes.ok) {
           const rows = await dataRes.json();
-          if (Array.isArray(rows) && rows.length > 0) {
+          if (Array.isArray(rows)) {
             const keyMap = {
               food_suppliers: 'foodSuppliers',
               lost_found: 'lostFound',
               stray_reports: 'strayReports',
-              vet_visits: 'vetVisits'
+              vet_visits: 'vetVisits',
+              blocked_list: 'blocked_list'
             };
-            dbSet(keyMap[t] || t, rows);
+            const storageKey = keyMap[t] || t;
+            const currentLocal = dbGet(storageKey) || [];
+
+            // Merge cloud rows and preserve local items that haven't reached cloud yet
+            const cloudIds = new Set(rows.map(r => r.id));
+            const localOnly = currentLocal.filter(item => item && item.id && !cloudIds.has(item.id));
+            dbSet(storageKey, [...rows, ...localOnly]);
           }
         }
       } catch { /* ignore */ }
@@ -113,14 +121,83 @@ async function syncWithCloud() {
   } catch { /* offline mode */ }
 }
 
-async function cloudSave(table, data) {
+export async function cloudSave(table, data) {
   try {
-    await fetch(`/api/data?table=${table}`, {
+    const res = await fetch(`/api/data?table=${table}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    return await res.json();
   } catch { /* continue locally */ }
+}
+
+export async function cloudDelete(table, id) {
+  try {
+    await fetch(`/api/data?table=${table}&id=${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
+  } catch { /* continue locally */ }
+}
+
+// ==========================================
+// SECURITY & BLOCKLIST (EMAILS & PHONES)
+// ==========================================
+
+export function getBlockedList() {
+  return dbGet('blocked_list') || [];
+}
+
+export function isBlocked(email = '', phone = '') {
+  const list = getBlockedList();
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+
+  return list.some(item => {
+    if (item.type === 'email' && cleanEmail && item.value.trim().toLowerCase() === cleanEmail) {
+      return true;
+    }
+    if (item.type === 'phone' && cleanPhone) {
+      const itemPhone = (item.value || '').replace(/[^0-9]/g, '');
+      if (itemPhone && (cleanPhone.endsWith(itemPhone) || itemPhone.endsWith(cleanPhone))) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+export function addBlockedEntry({ type, value, reason = 'Administrative restriction', blockedBy = 'Admin' }) {
+  const list = getBlockedList();
+  const cleanVal = (value || '').trim();
+  if (!cleanVal) return { success: false, error: 'Value is required' };
+
+  const exists = list.find(b => b.type === type && b.value.toLowerCase() === cleanVal.toLowerCase());
+  if (exists) {
+    return { success: false, error: `This ${type} is already blocked.` };
+  }
+
+  const newEntry = {
+    id: 'blk_' + generateId(),
+    type,
+    value: cleanVal,
+    reason,
+    blockedBy,
+    createdAt: new Date().toISOString()
+  };
+
+  list.unshift(newEntry);
+  dbSet('blocked_list', list);
+  cloudSave('blocked_list', newEntry);
+  return { success: true, entry: newEntry };
+}
+
+export function removeBlockedEntry(id) {
+  let list = getBlockedList();
+  list = list.filter(b => b.id !== id);
+  dbSet('blocked_list', list);
+  cloudDelete('blocked_list', id);
+  return { success: true };
 }
 
 // ==========================================
@@ -145,7 +222,21 @@ export function login(identifier, password) {
                       (u.role === 'user' && password === 'password123');
     return idMatch && passMatch;
   });
+
   if (user) {
+    if (user.isBlocked || user.status === 'blocked') {
+      return {
+        success: false,
+        error: `This account has been suspended by an administrator.${user.blockedReason ? ' Reason: ' + user.blockedReason : ' Please contact support.'}`
+      };
+    }
+    if (isBlocked(user.email, user.phone)) {
+      return {
+        success: false,
+        error: 'This account has been suspended by an administrator. Please contact support.'
+      };
+    }
+
     const { password: _, ...safeUser } = user;
     dbSet('currentUser', safeUser);
     return { success: true, user: safeUser };
@@ -169,7 +260,6 @@ export function updateCurrentUser(updates) {
 }
 
 export function googleLogin(customData = null) {
-  // If customData is supplied (from Google account chooser popup)
   const defaultGoogle = {
     name: 'Sandeep Kumar',
     email: 'sandeep.pandey@gmail.com',
@@ -179,10 +269,19 @@ export function googleLogin(customData = null) {
   };
 
   const account = customData || defaultGoogle;
+
+  if (isBlocked(account.email)) {
+    return { success: false, error: 'Access restricted: This Google account has been blocked by administrators.' };
+  }
+
   const users = dbGet('users') || [];
   let user = users.find(u => u.email.toLowerCase() === account.email.toLowerCase());
 
-  if (!user) {
+  if (user) {
+    if (user.isBlocked || user.status === 'blocked') {
+      return { success: false, error: 'This account has been suspended by an administrator.' };
+    }
+  } else {
     user = {
       id: generateId(),
       name: account.name,
@@ -193,6 +292,8 @@ export function googleLogin(customData = null) {
       googleAuth: true,
       storeName: account.storeName || null,
       businessType: account.businessType || null,
+      isBlocked: 0,
+      status: 'active'
     };
     users.push(user);
     dbSet('users', users);
@@ -205,6 +306,13 @@ export function googleLogin(customData = null) {
 }
 
 export function signup(userData) {
+  if (isBlocked(userData.email, userData.phone)) {
+    return {
+      success: false,
+      error: 'Registration blocked: This email address or phone number has been restricted by administrators.'
+    };
+  }
+
   const users = dbGet('users') || [];
   if (users.find(u => u.email.toLowerCase() === userData.email.toLowerCase())) {
     return { success: false, error: 'Email already registered' };
@@ -213,7 +321,9 @@ export function signup(userData) {
     id: generateId(),
     ...userData,
     avatar: userData.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
-    role: userData.role || 'user'
+    role: userData.role || 'user',
+    isBlocked: 0,
+    status: 'active'
   };
   users.push(newUser);
   dbSet('users', users);
@@ -224,6 +334,13 @@ export function signup(userData) {
 }
 
 export function vendorSignup(vendorData) {
+  if (isBlocked(vendorData.email, vendorData.phone)) {
+    return {
+      success: false,
+      error: 'Registration blocked: This email address or phone number has been restricted by administrators.'
+    };
+  }
+
   const users = dbGet('users') || [];
   if (users.find(u => u.email.toLowerCase() === vendorData.email.toLowerCase())) {
     return { success: false, error: 'Email already registered' };
@@ -248,6 +365,8 @@ export function vendorSignup(vendorData) {
     payoutUpi: vendorData.payoutUpi || '',
     storeDescription: vendorData.storeDescription || '',
     avatar: vendorData.storeName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'VN',
+    isBlocked: 0,
+    status: 'active',
     createdAt: new Date().toISOString()
   };
 
@@ -324,10 +443,12 @@ export function addVendorProduct(product) {
   const products = getProducts();
   const newProduct = {
     id: 'prod_' + generateId(),
-    inStock: 1,
+    inStock: true,
+    originalPrice: product.originalPrice || Math.round((Number(product.price) || 500) * 1.25),
     stockCount: Number(product.stockCount) || 50,
     rating: 5.0,
     reviews: 1,
+    tag: 'New Arrival',
     ...product
   };
   products.unshift(newProduct);
@@ -352,6 +473,7 @@ export function deleteVendorProduct(productId) {
   let products = getProducts();
   products = products.filter(p => p.id !== productId);
   dbSet('products', products);
+  cloudDelete('products', productId);
 }
 
 export function getVendorOrders(vendorId) {
@@ -386,6 +508,48 @@ export function adminDeleteUser(userId) {
   let users = adminGetAllUsers();
   users = users.filter(u => u.id !== userId);
   dbSet('users', users);
+  cloudDelete('users', userId);
+}
+
+export function adminToggleBlockUser(userId, reason = 'Account suspended by administrator') {
+  const users = adminGetAllUsers();
+  const user = users.find(u => u.id === userId);
+  if (!user) return null;
+
+  user.isBlocked = user.isBlocked ? 0 : 1;
+  user.status = user.isBlocked ? 'blocked' : 'active';
+  user.blockedReason = user.isBlocked ? reason : null;
+
+  dbSet('users', users);
+  cloudSave('users', user);
+
+  // If newly blocked, automatically add their email & phone to blocked_list
+  if (user.isBlocked) {
+    if (user.email) {
+      addBlockedEntry({
+        type: 'email',
+        value: user.email,
+        reason: `Auto-blocked with user: ${user.name} (${reason})`,
+        blockedBy: 'Master Admin'
+      });
+    }
+    if (user.phone) {
+      addBlockedEntry({
+        type: 'phone',
+        value: user.phone,
+        reason: `Auto-blocked with user: ${user.name} (${reason})`,
+        blockedBy: 'Master Admin'
+      });
+    }
+  }
+
+  // If this user is currently logged in, force logout
+  const current = getCurrentUser();
+  if (current && current.id === userId && user.isBlocked) {
+    logout();
+  }
+
+  return user;
 }
 
 export function adminUpdateUserRole(userId, newRole) {

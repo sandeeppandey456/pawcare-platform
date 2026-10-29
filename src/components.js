@@ -502,14 +502,18 @@ export function openGoogleLoginModal() {
 
   const attachAccountClick = (id, accountData) => {
     document.getElementById(id)?.addEventListener('click', () => {
-      googleLogin(accountData);
+      const res = googleLogin(accountData);
+      if (!res || !res.success) {
+        showToast(res?.error || 'Account suspended or blocked by administrator.', 'error');
+        return;
+      }
       modal.close();
-      showToast(`Welcome back, ${accountData.name}! 🎉`, 'success');
+      showToast(`Welcome back, ${res.user.name}! 🎉`, 'success');
       
       // Auto-route based on role
-      if (accountData.role === 'admin') {
+      if (res.user.role === 'admin') {
         navigate('/admin');
-      } else if (accountData.role === 'vendor') {
+      } else if (res.user.role === 'vendor') {
         navigate('/vendor');
       } else {
         navigate('/');

@@ -2726,10 +2726,10 @@ select.form-input {
 
 .portal-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: var(--space-xl);
-  overflow-x: auto;
 }
 .portal-tab-btn {
   padding: 12px 20px;

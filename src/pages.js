@@ -3084,6 +3084,9 @@ export function renderAdminDashboard(params = {}) {
         <button class="portal-tab-btn ${currentTab === 'strays' ? 'active' : ''}" onclick="window.location.hash='/admin?tab=strays'">
           <i class="fas fa-shield-dog"></i> Stray Reports (${allStrays.length})
         </button>
+        <button class="portal-tab-btn ${currentTab === 'security' ? 'active' : ''}" onclick="window.location.hash='/admin?tab=security'">
+          <i class="fas fa-shield-halved"></i> Security & Blocklist (${(db.getBlockedList() || []).length})
+        </button>
       </div>
 
       <!-- TAB 1: User Profiles Control -->
@@ -3095,6 +3098,7 @@ export function renderAdminDashboard(params = {}) {
                 <th>User / Store</th>
                 <th>Contact Details</th>
                 <th>Role & Permissions</th>
+                <th>Account Status</th>
                 <th>City</th>
                 <th>Injected Perks / Items</th>
                 <th>Admin Actions</th>
@@ -3102,15 +3106,19 @@ export function renderAdminDashboard(params = {}) {
             </thead>
             <tbody>
               ${allUsers.map(u => `
-                <tr>
+                <tr style="${u.isBlocked ? 'background: rgba(239, 68, 68, 0.05);' : ''}">
                   <td>
                     <div style="display: flex; align-items: center; gap: 10px;">
                       <div class="nav-user-avatar role-${u.role || 'user'}" style="width: 36px; height: 36px; font-size: 16px;">
                         ${u.avatar?.startsWith('http') ? `<img src="${u.avatar}" class="avatar-img-circle">` : (u.avatar || '🐾')}
                       </div>
                       <div>
-                        <div style="font-weight: 700; color: var(--text-primary); font-size: 14px;">${u.name}</div>
+                        <div style="font-weight: 700; color: var(--text-primary); font-size: 14px;">
+                          ${u.name}
+                          ${u.isBlocked ? `<span style="font-size: 10px; color: #EF4444; margin-left: 6px;"><i class="fas fa-ban"></i> Suspended</span>` : ''}
+                        </div>
                         ${u.storeName ? `<div style="font-size: 11px; color: var(--secondary); font-weight: 600;"><i class="fas fa-store"></i> ${u.storeName}</div>` : ''}
+                        ${u.vendorId ? `<div style="font-size: 10px; color: var(--text-muted); font-family: monospace;">ID: ${u.vendorId}</div>` : ''}
                       </div>
                     </div>
                   </td>
@@ -3124,6 +3132,18 @@ export function renderAdminDashboard(params = {}) {
                       <option value="vendor" ${u.role === 'vendor' ? 'selected' : ''}>Vendor Partner</option>
                       <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Super Administrator</option>
                     </select>
+                  </td>
+                  <td>
+                    ${u.isBlocked ? `
+                      <span class="table-badge Cancelled" style="background: rgba(239, 68, 68, 0.15); color: #EF4444; border: 1px solid rgba(239, 68, 68, 0.3);">
+                        <i class="fas fa-ban"></i> Blocked
+                      </span>
+                      ${u.blockedReason ? `<div style="font-size: 10px; color: #EF4444; margin-top: 3px; max-width: 140px;">${u.blockedReason}</div>` : ''}
+                    ` : `
+                      <span class="table-badge active" style="background: rgba(16, 185, 129, 0.15); color: #10B981; border: 1px solid rgba(16, 185, 129, 0.3);">
+                        <i class="fas fa-check-circle"></i> Active
+                      </span>
+                    `}
                   </td>
                   <td>${u.city || 'Bangalore'}</td>
                   <td>
@@ -3140,6 +3160,9 @@ export function renderAdminDashboard(params = {}) {
                         <i class="fas fa-edit"></i>
                       </button>
                       ${u.id !== currentUser.id ? `
+                        <button class="btn-table-action ${u.isBlocked ? 'success' : 'danger'}" style="${u.isBlocked ? 'color: #10B981; border-color: rgba(16, 185, 129, 0.4);' : 'color: #EF4444; border-color: rgba(239, 68, 68, 0.4);'}" onclick="window.adminToggleBlockUserAction('${u.id}', '${u.name}', ${u.isBlocked ? 'false' : 'true'})" title="${u.isBlocked ? 'Unblock Account' : 'Block & Suspend Account'}">
+                          <i class="fas ${u.isBlocked ? 'fa-unlock' : 'fa-ban'}"></i> ${u.isBlocked ? 'Unblock' : 'Block'}
+                        </button>
                         <button class="btn-table-action danger" onclick="window.adminDeleteUserAction('${u.id}', '${u.name}')" title="Delete User">
                           <i class="fas fa-trash"></i>
                         </button>
@@ -3393,11 +3416,181 @@ export function renderAdminDashboard(params = {}) {
           </table>
         </div>
       ` : ''}
+
+      <!-- TAB 7: Security & Blocklist -->
+      ${currentTab === 'security' ? `
+        <div style="display: grid; grid-template-columns: minmax(320px, 380px) 1fr; gap: 24px; align-items: start;">
+          <!-- Block Form Card -->
+          <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 24px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <span class="card-badge badge-urgent" style="background: #EF4444; color: white;">
+                <i class="fas fa-shield-halved"></i> ACCESS RESTRICTION
+              </span>
+            </div>
+            <h3 style="margin: 0 0 8px; font-size: 18px;">Block Email or Phone</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+              Prevent suspicious individuals or bad actors from creating new user or vendor accounts on PawCare.
+            </p>
+
+            <form id="admin-add-block-form" onsubmit="window.adminAddBlockedEntryAction(event)">
+              <div class="form-group">
+                <label class="form-label">Restriction Type</label>
+                <select class="form-input" id="blk-type" required>
+                  <option value="email">Email Address</option>
+                  <option value="phone">Phone Number</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Email or Phone to Block</label>
+                <input type="text" class="form-input" id="blk-val" placeholder="e.g. spammer@domain.com or 9876543210" required>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Reason / Infraction Note</label>
+                <textarea class="form-input" id="blk-reason" rows="3" placeholder="e.g. Payment fraud, fake vendor inventory, abusive behavior"></textarea>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-weight: 700; background: #EF4444; border-color: #EF4444;">
+                <i class="fas fa-ban"></i> Restrict & Block from Registration
+              </button>
+            </form>
+          </div>
+
+          <!-- Blocklist Registry Table -->
+          <div class="data-table-container" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 0;">
+            <div style="padding: 18px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <h3 style="margin: 0; font-size: 16px;"><i class="fas fa-list-check" style="color: #EF4444;"></i> Blocked Registry (${(db.getBlockedList() || []).length})</h3>
+                <p style="margin: 2px 0 0; font-size: 12px; color: var(--text-muted);">Emails and phones restricted from creating any accounts</p>
+              </div>
+            </div>
+
+            ${(db.getBlockedList() || []).length === 0 ? `
+              <div style="text-align: center; padding: 48px 20px;">
+                <i class="fas fa-shield-check" style="font-size: 40px; color: #10B981; margin-bottom: 12px;"></i>
+                <h4 style="margin: 0 0 6px;">No Blocked Emails or Phone Numbers</h4>
+                <p style="color: var(--text-muted); font-size: 13px; max-width: 360px; margin: 0 auto;">
+                  All clear! Use the form on the left to block any email or phone number if needed.
+                </p>
+              </div>
+            ` : `
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Blocked Value</th>
+                    <th>Reason</th>
+                    <th>Restricted On</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(db.getBlockedList() || []).map(item => `
+                    <tr>
+                      <td>
+                        <span class="card-badge" style="${item.type === 'email' ? 'background: rgba(59, 130, 246, 0.15); color: #3B82F6;' : 'background: rgba(245, 158, 11, 0.15); color: #F59E0B;'} font-weight: 700; font-size: 11px;">
+                          <i class="fas ${item.type === 'email' ? 'fa-envelope' : 'fa-phone'}"></i> ${item.type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td style="font-weight: 700; font-family: monospace; color: var(--text-primary); font-size: 13px;">
+                        ${item.value}
+                      </td>
+                      <td style="font-size: 12px; color: var(--text-secondary); max-width: 200px;">
+                        ${item.reason || 'Restricted by administrator'}
+                      </td>
+                      <td style="font-size: 11px; color: var(--text-muted);">
+                        ${item.createdAt ? item.createdAt.split('T')[0] : 'Recently'}
+                      </td>
+                      <td>
+                        <button class="btn btn-outline btn-xs" style="color: #10B981; border-color: rgba(16, 185, 129, 0.4);" onclick="window.adminRemoveBlockedEntryAction('${item.id}', '${item.value}')" title="Unblock">
+                          <i class="fas fa-unlock"></i> Unblock
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            `}
+          </div>
+        </div>
+      ` : ''}
     </div>
   `;
 }
 
 export function initAdminEvents() {
+  window.adminToggleBlockUserAction = function(userId, name, shouldBlock) {
+    if (!shouldBlock) {
+      const updated = db.adminToggleBlockUser(userId);
+      if (updated) {
+        showToast(`Account for "${name}" has been UNBLOCKED and restored! ✅`, 'success');
+        window.dispatchEvent(new Event('hashchange'));
+      }
+      return;
+    }
+
+    showModal(`Suspend & Block Account: ${name}`, `
+      <div style="padding: 4px 0;">
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
+          Suspending this account will immediately revoke access and prevent this user/vendor from logging in.
+        </p>
+        <form id="admin-block-confirm-form">
+          <div class="form-group">
+            <label class="form-label">Suspension Reason</label>
+            <input type="text" class="form-input" id="suspend-reason" value="Policy compliance violation / Suspicious activity" required>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('active-modal')?.remove()" style="flex: 1;">Cancel</button>
+            <button type="submit" class="btn btn-primary" style="flex: 1; background: #EF4444; border-color: #EF4444;">
+              <i class="fas fa-ban"></i> Confirm Suspension
+            </button>
+          </div>
+        </form>
+      </div>
+    `);
+
+    document.getElementById('admin-block-confirm-form')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const reason = document.getElementById('suspend-reason').value.trim() || 'Suspended by Master Administrator';
+      const updated = db.adminToggleBlockUser(userId, reason);
+      document.getElementById('active-modal')?.remove();
+      if (updated) {
+        showToast(`Account for "${name}" has been BLOCKED and suspended! 🚫`, 'warning');
+        window.dispatchEvent(new Event('hashchange'));
+      }
+    });
+  };
+
+  window.adminAddBlockedEntryAction = function(e) {
+    if (e) e.preventDefault();
+    const type = document.getElementById('blk-type').value;
+    const value = document.getElementById('blk-val').value.trim();
+    const reason = document.getElementById('blk-reason').value.trim() || 'Administrative restriction';
+
+    if (!value) {
+      showToast('Please enter an email or phone number to block.', 'warning');
+      return;
+    }
+
+    const result = db.addBlockedEntry({ type, value, reason, blockedBy: 'Master Admin' });
+    if (!result.success) {
+      showToast(result.error, 'error');
+      return;
+    }
+
+    showToast(`Successfully blocked ${type}: "${value}" from registration! 🛡️`, 'success');
+    window.dispatchEvent(new Event('hashchange'));
+  };
+
+  window.adminRemoveBlockedEntryAction = function(id, value) {
+    if (confirm(`Unblock and allow "${value}" to register accounts?`)) {
+      db.removeBlockedEntry(id);
+      showToast(`Unblocked "${value}".`, 'info');
+      window.dispatchEvent(new Event('hashchange'));
+    }
+  };
+
   window.adminChangeUserRole = function(userId, newRole) {
     db.adminUpdateUserRole(userId, newRole);
     showToast(`User role updated to ${newRole.toUpperCase()}! 🛡️`, 'success');

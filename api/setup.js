@@ -35,6 +35,9 @@ export default async function handler(req, res) {
         payoutUpi TEXT,
         vendorId TEXT,
         storeDescription TEXT,
+        isBlocked INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        blockedReason TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );`,
       `CREATE TABLE IF NOT EXISTS doctors (
@@ -87,11 +90,20 @@ export default async function handler(req, res) {
         reviews INTEGER,
         seller TEXT,
         vendorId TEXT,
+        vendorCode TEXT,
         sellerType TEXT,
         description TEXT,
         inStock INTEGER,
         stockCount INTEGER DEFAULT 50,
         tag TEXT
+      );`,
+      `CREATE TABLE IF NOT EXISTS blocked_list (
+        id TEXT PRIMARY KEY,
+        type TEXT,
+        value TEXT UNIQUE,
+        reason TEXT,
+        blockedBy TEXT,
+        createdAt TEXT DEFAULT (datetime('now'))
       );`,
       `CREATE TABLE IF NOT EXISTS reviews (
         id TEXT PRIMARY KEY,

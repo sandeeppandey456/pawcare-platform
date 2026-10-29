@@ -16,7 +16,8 @@ const ALLOWED_TABLES = [
   'lost_found',
   'stray_reports',
   'reviews',
-  'users'
+  'users',
+  'blocked_list'
 ];
 
 function parseJsonFields(row) {
@@ -33,7 +34,7 @@ function parseJsonFields(row) {
     }
   }
   // Convert 1/0 back to booleans where expected
-  const boolFields = ['available24x7', 'videoCall', 'emergency', 'inStock', 'vaccinated', 'neutered', 'delivery'];
+  const boolFields = ['available24x7', 'videoCall', 'emergency', 'inStock', 'vaccinated', 'neutered', 'delivery', 'isBlocked'];
   for (const field of boolFields) {
     if (parsed[field] !== undefined) {
       parsed[field] = Boolean(parsed[field]);
@@ -44,7 +45,7 @@ function parseJsonFields(row) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -104,7 +105,7 @@ export default async function handler(req, res) {
       return res.status(200).json(rows);
     }
 
-    // POST insert new record
+    // POST insert or update record
     if (req.method === 'POST') {
       const data = req.body;
       if (!data) {
@@ -123,26 +124,53 @@ export default async function handler(req, res) {
       }
 
       // Convert booleans to 1/0
-      const boolFields = ['available24x7', 'videoCall', 'emergency', 'inStock', 'vaccinated', 'neutered', 'delivery'];
+      const boolFields = ['available24x7', 'videoCall', 'emergency', 'inStock', 'vaccinated', 'neutered', 'delivery', 'isBlocked'];
       for (const f of boolFields) {
         if (record[f] !== undefined) {
           record[f] = record[f] ? 1 : 0;
         }
       }
 
-      const columns = Object.keys(record);
+      // Query table info to only insert columns that exist in the database table
+      const colInfo = await client.execute(`PRAGMA table_info(${table})`);
+      const validCols = new Set(colInfo.rows.map(r => r.name));
+
+      const safeRecord = {};
+      for (const [k, v] of Object.entries(record)) {
+        if (validCols.has(k)) {
+          safeRecord[k] = v;
+        }
+      }
+
+      const columns = Object.keys(safeRecord);
+      if (columns.length === 0) {
+        return res.status(400).json({ error: 'No valid table columns in payload' });
+      }
+
       const placeholders = columns.map(() => '?').join(', ');
-      const values = Object.values(record);
+      const values = Object.values(safeRecord);
 
       await client.execute({
-        sql: `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
+        sql: `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
         args: values
       });
 
       return res.status(201).json({ success: true, record: parseJsonFields(record) });
     }
 
-    return res.status(405).json({ error: 'Method not allowed' });
+    // DELETE record by id
+    if (req.method === 'DELETE') {
+      if (!id) {
+        return res.status(400).json({ error: 'Missing id query parameter for deletion' });
+      }
+
+      await client.execute({
+        sql: `DELETE FROM ${table} WHERE id = ?`,
+        args: [id]
+      });
+
+      return res.status(200).json({ success: true, deleted: id });
+    }
   } catch (error) {
     console.error(`Error querying ${table}:`, error);
     return res.status(500).json({ error: error.message || 'Database query error' });

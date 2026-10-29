@@ -35,8 +35,12 @@ async function main() {
   await safeAddColumn('users', 'payoutUpi TEXT');
   await safeAddColumn('users', 'vendorId TEXT');
   await safeAddColumn('users', 'storeDescription TEXT');
+  await safeAddColumn('users', 'isBlocked INTEGER DEFAULT 0');
+  await safeAddColumn('users', 'status TEXT DEFAULT "active"');
+  await safeAddColumn('users', 'blockedReason TEXT');
 
   await safeAddColumn('products', 'vendorId TEXT');
+  await safeAddColumn('products', 'vendorCode TEXT');
   await safeAddColumn('products', 'stockCount INTEGER DEFAULT 50');
 
   await safeAddColumn('doctors', 'address TEXT');
@@ -74,6 +78,17 @@ async function main() {
       date TEXT,
       text TEXT,
       likes INTEGER DEFAULT 0
+    );
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS blocked_list (
+      id TEXT PRIMARY KEY,
+      type TEXT,
+      value TEXT UNIQUE,
+      reason TEXT,
+      blockedBy TEXT,
+      createdAt TEXT DEFAULT (datetime('now'))
     );
   `);
 
