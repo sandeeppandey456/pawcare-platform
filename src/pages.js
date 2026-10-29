@@ -274,8 +274,8 @@ export function renderLogin() {
           
           <form id="login-form">
             <div class="form-group">
-              <label class="form-label">Email Address</label>
-              <input type="email" class="form-input" id="login-email" placeholder="Enter your email" required value="sandeep@example.com">
+              <label class="form-label">Email Address or Vendor ID</label>
+              <input type="text" class="form-input" id="login-email" placeholder="e.g. you@example.com or VND-123456" required value="sandeep@example.com">
             </div>
             <div class="form-group">
               <label class="form-label">Password</label>
@@ -611,7 +611,7 @@ export function initVendorSignupEvents() {
 
       const result = db.vendorSignup(vendorData);
       if (result.success) {
-        showToast(`Vendor account created! Welcome to your Vendor Hub, ${result.user.storeName}! 🏪`, 'success');
+        showToast(`Vendor account created! Your Vendor ID is ${result.user.vendorId || result.user.id}. Welcome, ${result.user.storeName}! 🏪`, 'success');
         navigate('/vendor');
       } else {
         showToast(result.error, 'error');
@@ -2498,31 +2498,43 @@ export function renderVendorDashboard(params = {}) {
   const currentTab = params.tab || 'inventory';
   const allProducts = db.getProducts();
   const storeName = user.storeName || (user.name + ' Studio');
+  const vendorCode = user.vendorId || user.id;
 
-  // Find products matching vendor
-  let myProducts = allProducts.filter(p => p.vendorId === user.id || p.seller === storeName);
-  if (myProducts.length === 0) {
-    // Provide initial demo listings for new vendors so they have items to manage immediately
-    myProducts = allProducts.filter(p => p.category === 'Clothing' || p.sellerType === 'small');
-  }
+  // STRICT PER-VENDOR ISOLATION:
+  // For new vendors: initial state is 100% empty (clean slate).
+  // Demo vendor retains PawStyle Studio products for testing.
+  const isDemoVendor = user.email === 'vendor@pawstyle.com' || user.id === 'vendor1';
+
+  const myProducts = allProducts.filter(p => {
+    if (p.vendorId && (p.vendorId === user.id || p.vendorId === user.vendorId)) return true;
+    if (isDemoVendor && (p.vendorId === 'vendor1' || p.seller === 'PawStyle Studio')) return true;
+    return false;
+  });
 
   const allOrders = db.getOrders();
-  let myOrders = allOrders.filter(o => o.items && o.items.some(i => myProducts.some(mp => mp.id === i.id) || i.vendorId === user.id));
-  if (myOrders.length === 0) {
-    myOrders = allOrders.slice(0, 3);
-  }
+  const myOrders = allOrders.filter(o => {
+    if (!o.items || !Array.isArray(o.items)) return false;
+    return o.items.some(item => {
+      if (item.vendorId && (item.vendorId === user.id || item.vendorId === user.vendorId)) return true;
+      if (isDemoVendor && (item.vendorId === 'vendor1' || item.seller === 'PawStyle Studio')) return true;
+      return myProducts.some(mp => mp.id === item.id);
+    });
+  });
 
   const storeRevenue = myOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const totalStockUnits = myProducts.reduce((sum, p) => sum + (p.stockCount || 15), 0);
+  const totalStockUnits = myProducts.reduce((sum, p) => sum + (p.stockCount || 0), 0);
   const pendingOrdersCount = myOrders.filter(o => o.status === 'Processing').length;
 
   return `
     <div class="page-header" style="background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(245, 158, 11, 0.08));">
       <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1280px; margin: 0 auto; flex-wrap: wrap; gap: 16px;">
         <div>
-          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
             <span class="card-badge badge-verified" style="background: #2DD4BF; color: #042F2E; font-weight: 800;">
               <i class="fas fa-store"></i> VERIFIED VENDOR
+            </span>
+            <span style="background: rgba(20, 184, 166, 0.15); color: #0D9488; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 700; border: 1px solid rgba(20, 184, 166, 0.3);">
+              <i class="fas fa-id-card"></i> Vendor ID: <strong>${vendorCode}</strong>
             </span>
             <span style="font-size: 13px; color: var(--text-muted);"><i class="fab fa-google" style="color: #4285F4;"></i> Google 4.9 Rating</span>
           </div>
@@ -2590,115 +2602,145 @@ export function renderVendorDashboard(params = {}) {
 
       <!-- TAB 1: Inventory & Stock Control -->
       ${currentTab === 'inventory' ? `
-        <div class="data-table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Category / Subcategory</th>
-                <th>Price</th>
-                <th>Stock Quantity</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${myProducts.map(p => `
+        ${myProducts.length === 0 ? `
+          <div class="clean-slate-card" style="padding: 60px 24px; text-align: center; background: var(--bg-card); border-radius: var(--radius-xl); border: 2px dashed var(--border-color); margin-top: 16px;">
+            <div style="width: 80px; height: 80px; margin: 0 auto 18px; background: rgba(20, 184, 166, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; color: #2DD4BF;">
+              <i class="fas fa-boxes-stacked"></i>
+            </div>
+            <h3 style="font-size: 22px; font-weight: 700; margin-bottom: 8px;">Your Inventory is Clean & Ready</h3>
+            <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto 24px; font-size: 15px; line-height: 1.6;">
+              You have a fresh, separate vendor inventory. No products have been added yet. Click below to add your first product listing with pricing, category, and initial stock!
+            </p>
+            <button class="btn btn-secondary" onclick="window.vendorOpenAddProduct()" style="font-weight: 700; padding: 14px 28px; font-size: 15px;">
+              <i class="fas fa-plus"></i> Add Your First Product
+            </button>
+          </div>
+        ` : `
+          <div class="data-table-container">
+            <table class="data-table">
+              <thead>
                 <tr>
-                  <td>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                      <img src="${p.image}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px;">
-                      <div>
-                        <div style="font-weight: 700; color: var(--text-primary); font-size: 14px;">${p.name}</div>
-                        <div style="font-size: 11px; color: var(--text-muted);">${p.seller}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div><span class="table-badge ${p.category}">${p.category}</span></div>
-                    <div style="font-size: 12px; color: var(--secondary); margin-top: 4px; font-weight: 600;">${p.subcategory || 'General'}</div>
-                  </td>
-                  <td style="font-weight: 700; color: var(--primary); font-size: 15px;">₹${p.price.toLocaleString()}</td>
-                  <td>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                      <button class="qty-btn" onclick="window.vendorAdjustStock('${p.id}', -1)">−</button>
-                      <span style="font-weight: 700; min-width: 24px; text-align: center;">${p.stockCount || 10}</span>
-                      <button class="qty-btn" onclick="window.vendorAdjustStock('${p.id}', 1)">+</button>
-                    </div>
-                  </td>
-                  <td>
-                    <button class="stock-badge-live ${p.inStock ? 'in-stock' : 'out-stock'}" style="cursor: pointer; border: none;" onclick="window.vendorToggleStock('${p.id}')">
-                      <i class="fas ${p.inStock ? 'fa-check-circle' : 'fa-times-circle'}"></i> ${p.inStock ? 'In Stock' : 'Out of Stock'}
-                    </button>
-                  </td>
-                  <td>
-                    <div class="table-actions">
-                      <button class="btn-table-action" onclick="window.vendorEditProductModal('${p.id}')" title="Edit Listing">
-                        <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn-table-action danger" onclick="window.vendorDeleteProductAction('${p.id}', '${p.name}')" title="Delete Listing">
-                        <i class="fas fa-trash"></i>
-                      </button>
-                    </div>
-                  </td>
+                  <th>Product</th>
+                  <th>Category / Subcategory</th>
+                  <th>Price</th>
+                  <th>Stock Quantity</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                ${myProducts.map(p => `
+                  <tr>
+                    <td>
+                      <div style="display: flex; align-items: center; gap: 12px;">
+                        <img src="${p.image}" style="width: 44px; height: 44px; object-fit: cover; border-radius: 8px;">
+                        <div>
+                          <div style="font-weight: 700; color: var(--text-primary); font-size: 14px;">${p.name}</div>
+                          <div style="font-size: 11px; color: var(--text-muted);">${p.seller}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div><span class="table-badge ${p.category}">${p.category}</span></div>
+                      <div style="font-size: 12px; color: var(--secondary); margin-top: 4px; font-weight: 600;">${p.subcategory || 'General'}</div>
+                    </td>
+                    <td style="font-weight: 700; color: var(--primary); font-size: 15px;">₹${p.price.toLocaleString()}</td>
+                    <td>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <button class="qty-btn" onclick="window.vendorAdjustStock('${p.id}', -1)">−</button>
+                        <span style="font-weight: 700; min-width: 24px; text-align: center;">${p.stockCount || 10}</span>
+                        <button class="qty-btn" onclick="window.vendorAdjustStock('${p.id}', 1)">+</button>
+                      </div>
+                    </td>
+                    <td>
+                      <button class="stock-badge-live ${p.inStock ? 'in-stock' : 'out-stock'}" style="cursor: pointer; border: none;" onclick="window.vendorToggleStock('${p.id}')">
+                        <i class="fas ${p.inStock ? 'fa-check-circle' : 'fa-times-circle'}"></i> ${p.inStock ? 'In Stock' : 'Out of Stock'}
+                      </button>
+                    </td>
+                    <td>
+                      <div class="table-actions">
+                        <button class="btn-table-action" onclick="window.vendorEditProductModal('${p.id}')" title="Edit Listing">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn-table-action danger" onclick="window.vendorDeleteProductAction('${p.id}', '${p.name}')" title="Delete Listing">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `}
       ` : ''}
 
       <!-- TAB 2: Orders & Fulfillment -->
       ${currentTab === 'orders' ? `
-        <div class="data-table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Order ID & Date</th>
-                <th>Customer & Address</th>
-                <th>Purchased Items</th>
-                <th>Order Total</th>
-                <th>Fulfillment Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${myOrders.map(order => `
+        ${myOrders.length === 0 ? `
+          <div class="clean-slate-card" style="padding: 60px 24px; text-align: center; background: var(--bg-card); border-radius: var(--radius-xl); border: 2px dashed var(--border-color); margin-top: 16px;">
+            <div style="width: 80px; height: 80px; margin: 0 auto 18px; background: rgba(59, 130, 246, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; color: #3B82F6;">
+              <i class="fas fa-receipt"></i>
+            </div>
+            <h3 style="font-size: 22px; font-weight: 700; margin-bottom: 8px;">No Customer Orders Yet</h3>
+            <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto 24px; font-size: 15px; line-height: 1.6;">
+              Orders placed for your store products will appear here with customer delivery address, order items, and dispatch controls.
+            </p>
+            <button class="btn btn-outline" onclick="window.location.hash='/shop'">
+              <i class="fas fa-eye"></i> View Live Marketplace
+            </button>
+          </div>
+        ` : `
+          <div class="data-table-container">
+            <table class="data-table">
+              <thead>
                 <tr>
-                  <td>
-                    <div style="font-weight: 700; color: var(--primary);">#${order.id}</div>
-                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">${new Date(order.date).toLocaleDateString()}</div>
-                  </td>
-                  <td>
-                    <div style="font-weight: 600; color: var(--text-primary);">${order.name || 'Pet Parent'}</div>
-                    <div style="font-size: 12px; color: var(--text-secondary); max-width: 240px; margin-top: 2px;">
-                      ${order.address || 'HSR Layout Sector 2'}, ${order.city || 'Bangalore'}
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;"><i class="fas fa-phone"></i> ${order.phone || '9876543210'}</div>
-                  </td>
-                  <td>
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                      ${(order.items || []).map(i => `
-                        <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
-                          <span>•</span> <span>${i.name}</span> <span style="color: var(--text-muted); font-weight: 600;">x${i.quantity}</span>
-                        </div>
-                      `).join('')}
-                    </div>
-                  </td>
-                  <td style="font-weight: 700; color: var(--primary); font-size: 15px;">
-                    ₹${Math.round(order.total * 0.9).toLocaleString()}
-                  </td>
-                  <td>
-                    <select class="form-input btn-sm" style="padding: 6px 10px; font-weight: 700; width: auto;" onchange="window.vendorChangeOrderStatus('${order.id}', this.value)">
-                      <option value="Processing" ${order.status === 'Processing' ? 'selected' : ''}>⏳ Processing</option>
-                      <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>🚚 Shipped</option>
-                      <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>✅ Delivered</option>
-                    </select>
-                  </td>
+                  <th>Order ID & Date</th>
+                  <th>Customer & Address</th>
+                  <th>Purchased Items</th>
+                  <th>Order Total</th>
+                  <th>Fulfillment Status</th>
                 </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                ${myOrders.map(order => `
+                  <tr>
+                    <td>
+                      <div style="font-weight: 700; color: var(--primary);">#${order.id}</div>
+                      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">${new Date(order.date).toLocaleDateString()}</div>
+                    </td>
+                    <td>
+                      <div style="font-weight: 600; color: var(--text-primary);">${order.name || 'Pet Parent'}</div>
+                      <div style="font-size: 12px; color: var(--text-secondary); max-width: 240px; margin-top: 2px;">
+                        ${order.address || 'HSR Layout Sector 2'}, ${order.city || 'Bangalore'}
+                      </div>
+                      <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;"><i class="fas fa-phone"></i> ${order.phone || '9876543210'}</div>
+                    </td>
+                    <td>
+                      <div style="display: flex; flex-direction: column; gap: 4px;">
+                        ${(order.items || []).map(i => `
+                          <div style="font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
+                            <span>•</span> <span>${i.name}</span> <span style="color: var(--text-muted); font-weight: 600;">x${i.quantity}</span>
+                          </div>
+                        `).join('')}
+                      </div>
+                    </td>
+                    <td style="font-weight: 700; color: var(--primary); font-size: 15px;">
+                      ₹${Math.round(order.total * 0.9).toLocaleString()}
+                    </td>
+                    <td>
+                      <select class="form-input btn-sm" style="padding: 6px 10px; font-weight: 700; width: auto;" onchange="window.vendorChangeOrderStatus('${order.id}', this.value)">
+                        <option value="Processing" ${order.status === 'Processing' ? 'selected' : ''}>⏳ Processing</option>
+                        <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>🚚 Shipped</option>
+                        <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>✅ Delivered</option>
+                      </select>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `}
       ` : ''}
 
       <!-- TAB 3: Store Settings -->
@@ -2706,6 +2748,13 @@ export function renderVendorDashboard(params = {}) {
         <div style="max-width: 700px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-xl); padding: var(--space-2xl);">
           <h3 style="font-family: var(--font-heading); font-size: 20px; margin-bottom: var(--space-lg);"><i class="fas fa-store"></i> Store & Payout Configuration</h3>
           <form id="vendor-settings-form">
+            <div class="form-group">
+              <label class="form-label">Vendor ID (Use to Login)</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" class="form-input" value="${vendorCode}" readonly style="background: var(--bg-secondary); font-family: monospace; font-weight: 700; color: #2DD4BF;">
+                <button type="button" class="btn btn-outline btn-sm" onclick="navigator.clipboard.writeText('${vendorCode}'); showToast('Vendor ID copied to clipboard! 📋', 'success');">Copy</button>
+              </div>
+            </div>
             <div class="form-group">
               <label class="form-label">Store / Brand Name</label>
               <input type="text" class="form-input" id="v-set-name" value="${storeName}" required>
@@ -2724,11 +2773,11 @@ export function renderVendorDashboard(params = {}) {
             </div>
             <div class="form-group">
               <label class="form-label">UPI ID for Automated Weekly Payouts</label>
-              <input type="text" class="form-input" id="v-set-upi" value="${user.payoutUpi || 'pawstyle@okaxis'}" required>
+              <input type="text" class="form-input" id="v-set-upi" value="${user.payoutUpi || ''}" placeholder="e.g. storename@okaxis" required>
             </div>
             <div class="form-group">
               <label class="form-label">Store Bio / Description</label>
-              <textarea class="form-input" id="v-set-desc" rows="3">${user.storeDescription || 'Handmade pet wearables, festive scarfs, coats and customized accessories crafted with love.'}</textarea>
+              <textarea class="form-input" id="v-set-desc" rows="3" placeholder="Tell pet parents about your specialty, fabrics, craftsmanship, or organic recipes...">${user.storeDescription || ''}</textarea>
             </div>
             <button type="submit" class="btn btn-secondary" style="padding: 12px 24px; font-weight: 700;">
               <i class="fas fa-save"></i> Save Store Settings
@@ -2843,11 +2892,12 @@ export function initVendorEvents() {
         inStock: true,
         image: document.getElementById('vp-image').value,
         description: document.getElementById('vp-desc').value,
-        seller: user?.storeName || user?.name || 'PawStyle Studio',
+        seller: user?.storeName || user?.name || 'My Store',
         sellerType: 'small',
-        vendorId: user?.id || 'vendor1',
+        vendorId: user?.id,
+        vendorCode: user?.vendorId || user?.id,
         rating: 5.0,
-        reviews: 1
+        reviews: 0
       };
 
       db.addVendorProduct(newProd);
@@ -2905,17 +2955,16 @@ export function initVendorEvents() {
   // Vendor settings save
   document.getElementById('vendor-settings-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    const user = db.getCurrentUser();
-    if (user) {
-      user.storeName = document.getElementById('v-set-name').value;
-      user.businessType = document.getElementById('v-set-cat').value;
-      user.city = document.getElementById('v-set-city').value;
-      user.payoutUpi = document.getElementById('v-set-upi').value;
-      user.storeDescription = document.getElementById('v-set-desc').value;
-      db.dbSet('currentUser', user);
-      showToast('Store settings and UPI payout details updated! 💾', 'success');
-      window.dispatchEvent(new Event('hashchange'));
-    }
+    const updates = {
+      storeName: document.getElementById('v-set-name').value,
+      businessType: document.getElementById('v-set-cat').value,
+      city: document.getElementById('v-set-city').value,
+      payoutUpi: document.getElementById('v-set-upi').value,
+      storeDescription: document.getElementById('v-set-desc').value,
+    };
+    db.updateCurrentUser(updates);
+    showToast('Store settings and UPI payout details updated! 💾', 'success');
+    window.dispatchEvent(new Event('hashchange'));
   });
 }
 

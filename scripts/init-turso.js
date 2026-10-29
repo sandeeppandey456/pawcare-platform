@@ -33,6 +33,8 @@ async function main() {
   await safeAddColumn('users', 'businessType TEXT');
   await safeAddColumn('users', 'gstin TEXT');
   await safeAddColumn('users', 'payoutUpi TEXT');
+  await safeAddColumn('users', 'vendorId TEXT');
+  await safeAddColumn('users', 'storeDescription TEXT');
 
   await safeAddColumn('products', 'vendorId TEXT');
   await safeAddColumn('products', 'stockCount INTEGER DEFAULT 50');

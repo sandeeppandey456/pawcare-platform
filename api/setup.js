@@ -33,6 +33,8 @@ export default async function handler(req, res) {
         businessType TEXT,
         gstin TEXT,
         payoutUpi TEXT,
+        vendorId TEXT,
+        storeDescription TEXT,
         created_at TEXT DEFAULT (datetime('now'))
       );`,
       `CREATE TABLE IF NOT EXISTS doctors (

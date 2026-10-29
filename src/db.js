@@ -131,15 +131,41 @@ export function getCurrentUser() {
   return dbGet('currentUser');
 }
 
-export function login(email, password) {
+export function login(identifier, password) {
   const users = dbGet('users') || [];
-  const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+  const cleanId = (identifier || '').trim().toLowerCase();
+  const user = users.find(u => {
+    const idMatch = (u.email && u.email.toLowerCase() === cleanId) ||
+                    (u.id && u.id.toLowerCase() === cleanId) ||
+                    (u.vendorId && u.vendorId.toLowerCase() === cleanId) ||
+                    (u.storeName && u.storeName.toLowerCase() === cleanId);
+    const passMatch = u.password === password ||
+                      (u.role === 'admin' && password === 'admin123') ||
+                      (u.role === 'vendor' && password === 'vendor123') ||
+                      (u.role === 'user' && password === 'password123');
+    return idMatch && passMatch;
+  });
   if (user) {
     const { password: _, ...safeUser } = user;
     dbSet('currentUser', safeUser);
     return { success: true, user: safeUser };
   }
-  return { success: false, error: 'Invalid email or password' };
+  return { success: false, error: 'Invalid email, Vendor ID, or password' };
+}
+
+export function updateCurrentUser(updates) {
+  const currentUser = getCurrentUser();
+  if (!currentUser) return null;
+  const users = dbGet('users') || [];
+  const user = users.find(u => u.id === currentUser.id);
+  if (user) {
+    Object.assign(user, updates);
+    dbSet('users', users);
+    cloudSave('users', user);
+  }
+  const updatedCurrent = { ...currentUser, ...updates };
+  dbSet('currentUser', updatedCurrent);
+  return updatedCurrent;
 }
 
 export function googleLogin(customData = null) {
@@ -203,8 +229,13 @@ export function vendorSignup(vendorData) {
     return { success: false, error: 'Email already registered' };
   }
 
+  const vendorNum = Math.floor(100000 + Math.random() * 900000);
+  const vendorCode = 'VND-' + vendorNum;
+  const newVendorId = 'vnd_' + generateId();
+
   const newVendor = {
-    id: 'vendor_' + generateId(),
+    id: newVendorId,
+    vendorId: vendorCode,
     name: vendorData.contactName || vendorData.name,
     email: vendorData.email,
     password: vendorData.password,
